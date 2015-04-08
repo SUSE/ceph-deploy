@@ -4,6 +4,30 @@ import os
 from ceph_deploy import hosts, exc
 from ceph_deploy.lib import remoto
 
+#
+# For use on SLES, `ceph-deploy calamari` doesn't use a calamari minion repo.
+# Rather, it relies on your Ceph nodes already having access to a respository
+# that containts salt-minion and its dependencies, as well as diamond, which
+# salt-minion will in turn install.  This completely removes any need to
+# specify repos, or alter your ~/.cephdeploy.conf file at all (which is what
+# (http://calamari.readthedocs.org/en/latest/operations/minion_connect.html
+# says you need to do).
+#
+# All you need to do to hook some set of Ceph nodes up to a calamari instance
+# is run:
+#
+#   ceph-deploy calamari connect --master <calamari-fqdn> <node1> [<node2> ...]
+#
+# For example:
+#
+#   ceph-deploy calamari connect --master calamari.example.com \
+#       ceph-0.example.com ceph-1.example.com ceph-2.example.com
+#
+# Or, if you are running ceph-deploy from your calamari host:
+#
+#   ceph-deploy calamari connect --master $(hostname -f) \
+#       ceph-0.example.com ceph-1.example.com ceph-2.example.com
+#
 
 LOG = logging.getLogger(__name__)
 
@@ -13,7 +37,7 @@ def distro_is_supported(distro_name):
     An enforcer of supported distros that can differ from what ceph-deploy
     supports.
     """
-    supported = ['centos', 'redhat', 'ubuntu', 'debian']
+    supported = ['suse']
     if distro_name in supported:
         return True
     return False
@@ -24,7 +48,7 @@ def connect(args):
         distro = hosts.get(hostname, username=args.username)
         if not distro_is_supported(distro.normalized_name):
             raise exc.UnsupportedPlatform(
-                distro.distro_name,
+                distro.name,
                 distro.codename,
                 distro.release
             )
@@ -39,6 +63,7 @@ def connect(args):
         LOG.info('Refer to the docs for examples (http://ceph.com/ceph-deploy/docs/conf.html)')
 
         rlogger = logging.getLogger(hostname)
+        rlogger.info('installing calamari-minion package on %s' % hostname)
 
         # Emplace minion config prior to installation so that it is present
         # when the minion first starts.
@@ -58,17 +83,15 @@ def connect(args):
 
         distro.packager.install('salt-minion')
 
-        # redhat/centos need to get the service started
-        if distro.normalized_name in ['redhat', 'centos']:
-            remoto.process.run(
-                distro.conn,
-                ['chkconfig', 'salt-minion', 'on']
-            )
+        remoto.process.run(
+            distro.conn,
+            ['systemctl', 'enable', 'salt-minion']
+        )
 
-            remoto.process.run(
-                distro.conn,
-                ['service', 'salt-minion', 'start']
-            )
+        remoto.process.run(
+            distro.conn,
+            ['systemctl', 'start', 'salt-minion']
+        )
 
         distro.conn.exit()
 
@@ -92,9 +115,8 @@ def make(parser):
     )
     calamari_connect.add_argument(
         '--master',
-        nargs='?',
-        metavar='MASTER SERVER',
-        help="The domain for the Calamari master server"
+        required=True,
+        help="The fully qualified domain name of the Calamari server"
     )
     calamari_connect.add_argument(
         'hosts',
