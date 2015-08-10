@@ -160,7 +160,7 @@ def rgw_key_list(conn):
             ],
         )
     if rc != 0:
-        LOG.debug("stdout=%s" % (cleanedoutput))
+        LOG.debug("stdout=%s" % (stdout))
         LOG.debug("stderr=%s" % (stderr))
         LOG.debug("rc=%s" % (rc))
         return None
@@ -661,6 +661,9 @@ def rgw_prepare(args, cfg):
             # try next host
             continue
         auth = rgw_key_list(distro.conn)
+        if auth == None:
+            LOG.warning("Could not establish the auuth on host:%s" % (host_mon))
+            continue
         rgw_pools_create(distro.conn)
         # because we dont want to do this on each mon node
         break
@@ -761,7 +764,9 @@ def rgw_prepare(args, cfg):
             cfg_changed = True
         cfg_changed = True
 
+
     # Now we need to make the keys.
+    auth = None
     for host_mon in monhosts:
         # We need to create keys on a mon node.
         try:
@@ -773,10 +778,13 @@ def rgw_prepare(args, cfg):
             keypath = cfg.get(entity,'keyring')
             rgw_key_gen(distro.conn, keypath, entity)
         auth = rgw_key_list(distro.conn)
-
+        if auth == None:
+            LOG.warning("Could not list the keys on host:%s" % (host_mon))
+            continue
         # we only need to do this on one host
         break
-
+    if auth == None:
+        raise SystemExit('Failed to get auth details')
     present_auth = prepare_wanted.intersection(auth.keys())
     missing_auth = prepare_wanted.difference(auth.keys())
 
@@ -939,6 +947,7 @@ def rgw_delete(args, cfg):
             LOG.info("deleted %s" % (keyring))
         entities_deauth.add(entity)
     # now we use a mon to remove auth enities
+    auth = None
     for host_mon in monhosts:
         try:
             distro = hosts.get(host_mon, username=args.username)
@@ -946,6 +955,9 @@ def rgw_delete(args, cfg):
             # try next host
             continue
         auth = rgw_key_list(distro.conn)
+        if auth == None:
+            LOG.warning("Could not establish the auuth on host:%s" % (host_mon))
+            continue
         for entity in entities_deauth.intersection(auth.keys()):
             rgw_key_deauth(distro.conn,entity)
         # because we dont want to do this on each mon node
