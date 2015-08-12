@@ -22,8 +22,9 @@ LOG = logging.getLogger(__name__)
 
 ## Templates
 
-template_apache2_rgw_conf = """FastCgiExternalServer /srv/www/radosgw/{scriptName} -socket {socket}
-
+template_apache2_rgw_conf = """# Created by ceph deploy
+Listen {port}
+FastCgiExternalServer /srv/www/radosgw/{scriptName} -socket {socket}
 
 <VirtualHost *:{port}>
 
@@ -495,6 +496,8 @@ def apache_setup(distro, **kwargs):
         LOG.info("Writing:%s" % (path_conf))
         distro.conn.remote_module.write_file(path_conf, content)
     content = template_radosgw_s3gw_fcgi.format(entity = entity)
+    if not distro.conn.remote_module.path_exists(apache_fcgi_d):
+        distro.conn.remote_module.safe_makedirs(apache_fcgi_d)
     scriptpath = "%s/%s" % (apache_fcgi_d,scriptName)
     if distro.conn.remote_module.path_exists(scriptpath):
         LOG.info("File exists Skipping:%s" % (scriptpath))
@@ -511,12 +514,16 @@ def apache_setup(distro, **kwargs):
 def apache_teardown_conf_d(distro):
     LOG.info("apache_conf_d=%s" % (apache_conf_d))
     #LOG.info("filelist=%s" % (str(", ".join(filelist))))
+    if not distro.conn.remote_module.path_exists(apache_conf_d):
+        return set([])
     return set(map( lambda m: apache_conf_d + "/" + m, dir_filter(distro.conn,apache_conf_d,"^ceph_radosgw_.*conf")))
 
 
 def apache_teardown_fcgi_d(distro):
     LOG.info("apache_fcgi_d=%s" % (apache_fcgi_d))
     #LOG.info("filelist=%s" % (str(", ".join(filelist))))
+    if not distro.conn.remote_module.path_exists(apache_fcgi_d):
+        return set([])
     return set(map( lambda m: apache_fcgi_d + "/" + m, dir_filter(distro.conn,apache_fcgi_d,"^s3gw_.*fcgi")))
 
 
@@ -656,9 +663,7 @@ def rgw_prepare(args, cfg):
         push_hosts.add(hostname)
         map_entity2host[instance] = hostname
         if fqdn == None:
-            port = 80
             LOG.info("%s:Not setting virtual host fqdn" % (instance_name))
-
         map_entity2fqdn[instance] = fqdn
         if port == None:
             port = 80
@@ -667,7 +672,7 @@ def rgw_prepare(args, cfg):
             portNum = int(port)
         except TypeError:
             portNum = 80
-            LOG.warning("%s:Defaulting port to:%s" % (instance_name, portNum))
+            LOG.warning("%s:Port was not a number defaulting port to:%s" % (instance_name, portNum))
         map_entity2port[instance] = portNum
         if (redirect == None) or (len(redirect) == 0):
             redirect = "^/(.*)"
@@ -707,6 +712,10 @@ def rgw_prepare(args, cfg):
         distro.pkg_install(
                 distro,
                 "ceph-radosgw"
+            )
+        distro.pkg_install(
+                distro,
+                "apache2-mod_fastcgi",
             )
         installed.add(hostname)
 
@@ -835,6 +844,12 @@ def rgw_prepare(args, cfg):
             continue
 
 
+        # Setup logging
+        log_file_path = cfg.get(entity,'log file')
+        log_file_dir = os.path.dirname(log_file_path)
+        if not distro.conn.remote_module.path_exists(log_file_dir):
+            distro.conn.remote_module.safe_makedirs(log_file_dir)
+        distro.conn.remote_module.chown(log_file_dir, "wwwrun", "www")
         distro.conn.remote_module.write_keyring(keypath,string2write)
         distro.conn.remote_module.chmod(keypath, 0640)
         distro.conn.remote_module.chown(keypath, "root","www")
@@ -889,14 +904,29 @@ def rgw_activate(args, cfg):
             service_name_mapping = distro.service_mapping)
         #init.init_type = distro.choose_init()
         entity_name = rgw_entity2name(entity)
+        running = None
         try:
-            init.start("apache")
+            running = init.status("apache")
         except init_exception_service:
-            LOG.error("Failed starting apache")
+            LOG.error("Failed getting apache status for %s" % (entity))
+            continue
+        if running == True:
+            try:
+                init.restart("apache")
+            except init_exception_service:
+                LOG.error("Failed starting apache for %s" % (entity))
+                continue
+        if running == False:
+            try:
+                init.start("apache")
+            except init_exception_service:
+                LOG.error("Failed starting apache for %s" % (entity))
+                continue
         try:
             init.enable("apache")
         except init_exception_service:
-            LOG.error("Failed enabling apache")
+            LOG.error("Failed enabling apache for %s" % (entity))
+            continue
         try:
             init.start("ceph-radosgw",[entity_name])
         except init_exception_service:
@@ -964,14 +994,21 @@ def rgw_delete(args, cfg):
             init.disable("ceph-radosgw",[entity_name])
         except init_exception_service:
             LOG.error("Failed disabling ceph-radosgw %s" % (entity_name))
+        running = None
         try:
-            init.stop("apache")
+            running = init.status("apache")
         except init_exception_service:
-            LOG.error("Failed stopping apache")
-        try:
-            init.disable("apache")
-        except init_exception_service:
-            LOG.error("Failed disabling apache")
+            LOG.error("Failed getting apache status for %s" % (entity))
+            continue
+        if running == True:
+            try:
+                init.stop("apache")
+            except init_exception_service:
+                LOG.error("Failed stopping apache")
+            try:
+                init.disable("apache")
+            except init_exception_service:
+                LOG.error("Failed disabling apache")
         keypath = cfg.get(entity,'keyring')
         if distro.conn.remote_module.path_exists(keyring):
             distro.conn.remote_module.unlink(keyring)
@@ -987,7 +1024,7 @@ def rgw_delete(args, cfg):
             continue
         auth = rgw_key_list(distro.conn)
         if auth == None:
-            LOG.warning("Could not establish the auuth on host:%s" % (host_mon))
+            LOG.warning("Could not list the keys on host:%s" % (host_mon))
             continue
         for entity in entities_deauth.intersection(auth.keys()):
             rgw_key_deauth(distro.conn,entity)
@@ -1104,4 +1141,3 @@ def make(parser):
     parser.set_defaults(
         func=rgw,
         )
-
