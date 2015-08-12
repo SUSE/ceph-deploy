@@ -195,7 +195,7 @@ class init_system_systemd():
             if key == "ActiveState":
                 if value == "active":
                     running = True
-                if value == "inactive":
+                else:
                     running = False
         if running == None:
             raise init_exception_service("failed to get ActiveState from %s" % (systemctl_name))
