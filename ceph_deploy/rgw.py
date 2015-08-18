@@ -23,7 +23,7 @@ LOG = logging.getLogger(__name__)
 ## Templates
 
 template_apache2_rgw_conf = """# Created by ceph deploy
-Listen {port}
+{noNewListen}Listen {port}
 FastCgiExternalServer /srv/www/radosgw/{scriptName} -socket {socket}
 
 <VirtualHost *:{port}>
@@ -453,6 +453,7 @@ def apache_setup(distro, **kwargs):
     redirect = kwargs.get('redirect', None)
     socket = kwargs.get('socket', None)
     ServerNameCommented = "#"
+    PortCommented = "#"
     # validate
     if entity == None:
         LOG.error("No entity provided")
@@ -467,27 +468,34 @@ def apache_setup(distro, **kwargs):
         redirect = "^/(.*)"
         LOG.error("defaulting redirect to:%s" % (redirect))
 
+    # manage comments
+    if not port in [80, 443, 8080]:
+        PortCommented = ""
+    if fqdn != None:
+        ServerNameCommented = ""
 
-
-    # Now we gen the files
+    # Now we gen the file name
     atributes = []
     if entity != None:
         atributes.append(entity)
     if port != None:
         atributes.append(str(port))
-    attribString = "_testing"
+    if fqdn != None:
+        atributes.append(fqdn)
+    attribString = ""
     if len(atributes) > 0:
-        attribString = str("_%s" % ("_".join(atributes)))
+        attribString = str("%s" % ("_".join(atributes)))
 
 
-    scriptName = "s3gw_%s.fcgi" % (port)
-    conf_name = "s3gw_%s.conf" % (port)
+    scriptName = "s3gw_%s.fcgi" % (attribString)
+    conf_name = "s3gw_%s.conf" % (attribString)
 
     content = template_apache2_rgw_conf.format(port = port,
         noServerName = ServerNameCommented,
         fqdn = fqdn,
         scriptName = scriptName,
         redirect = redirect,
+        noNewListen = PortCommented,
         socket = socket)
     path_conf = "%s/%s" % (apache_conf_d, conf_name)
     if distro.conn.remote_module.path_exists(path_conf):
