@@ -636,6 +636,12 @@ def apache_teardown(distro, **kwargs):
         raise SystemExit('No entity provided')
     cfg = apache_info(distro, **kwargs)
     todelete = cfg['entity'][entity]["conf"].union(cfg['entity'][entity]["fcgi"])
+    for fcgi_file in todelete:
+        for file_name in distro.conn.remote_module.listdir(apache_conf_d):
+            file_path = apache_conf_d + '/' + file_name
+            if distro.conn.remote_module.grep(fcgi_file,file_path):
+                LOG.info("deleting file:%s" % (file_path))
+                distro.conn.remote_module.unlink(file_path)
     for filename in todelete:
         LOG.info("deleting file:%s" % (filename))
         distro.conn.remote_module.unlink(filename)
