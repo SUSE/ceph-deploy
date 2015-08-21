@@ -15,7 +15,7 @@ from ceph_deploy import hosts
 from ceph_deploy.misc import mon_hosts
 from ceph_deploy.connection import get_connection
 from ceph_deploy import gatherkeys
-
+from ceph_deploy.util.services import init_system, init_exception_service
 
 LOG = logging.getLogger(__name__)
 
@@ -303,17 +303,17 @@ def hostname_is_compatible(conn, logger, provided_hostname):
     logger.warning('*'*80)
 
 
-def destroy_mon(conn, cluster, hostname):
+def destroy_mon(distro, cluster, hostname):
     import datetime
     import time
     retries = 5
 
     path = paths.mon.path(cluster, hostname)
 
-    if conn.remote_module.path_exists(path):
+    if distro.conn.remote_module.path_exists(path):
         # remove from cluster
         remoto.process.run(
-            conn,
+            distro.conn,
             [
                 'ceph',
                 '--cluster={cluster}'.format(cluster=cluster),
@@ -325,28 +325,16 @@ def destroy_mon(conn, cluster, hostname):
             ],
             timeout=7,
         )
+        init = init_system(connection = distro.conn,
+            init_type = distro.choose_init(),
+            service_name_mapping = distro.service_mapping)
 
         # stop
-        if conn.remote_module.path_exists(os.path.join(path, 'upstart')):
-            status_args = [
-                'initctl',
-                'status',
-                'ceph-mon',
-                'cluster={cluster}'.format(cluster=cluster),
-                'id={hostname}'.format(hostname=hostname),
-            ]
-
-        elif conn.remote_module.path_exists(os.path.join(path, 'sysvinit')):
-            status_args = [
-                'service',
-                'ceph',
-                'status',
-                'mon.{hostname}'.format(hostname=hostname),
-            ]
+        running = init.stop("ceph-mon", [hostname])
 
         while retries:
-            conn.logger.info('polling the daemon to verify it stopped')
-            if is_running(conn, status_args):
+            distro.conn.logger.info('polling the daemon to verify it stopped')
+            if init.status("ceph-mon", [hostname]):
                 time.sleep(5)
                 retries -= 1
                 if retries <= 0:
@@ -362,7 +350,7 @@ def destroy_mon(conn, cluster, hostname):
             )
 
         remoto.process.run(
-            conn,
+            distro.conn,
             [
                 'mkdir',
                 '-p',
@@ -370,7 +358,7 @@ def destroy_mon(conn, cluster, hostname):
             ],
         )
 
-        conn.remote_module.make_mon_removed_dir(path, fn)
+        distro.conn.remote_module.make_mon_removed_dir(path, fn)
 
 
 def mon_destroy(args):
@@ -383,7 +371,7 @@ def mon_destroy(args):
             hostname = distro.conn.remote_module.shortname()
 
             destroy_mon(
-                distro.conn,
+                distro,
                 args.cluster,
                 hostname,
             )
