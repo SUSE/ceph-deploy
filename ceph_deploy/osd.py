@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import time
+import shlex
 from textwrap import dedent
 
 from cStringIO import StringIO
@@ -663,12 +664,23 @@ def colon_separated(s):
     journal = None
     disk = None
     host = None
-    if s.count(':') == 2:
-        (host, disk, journal) = s.split(':')
-    elif s.count(':') == 1:
-        (host, disk) = s.split(':')
-    elif s.count(':') == 0:
-        (host) = s
+    lexer = shlex.shlex(s)
+    lexer.whitespace = ':'
+    lexer.whitespace_split = True
+    splitline = []
+    try:
+        for token in lexer:
+            splitline.append(token.strip("'").strip('"'))
+    except ValueError, err:
+        first_line_of_error = lexer.token.splitlines()[0]
+        raise argparse.ArgumentTypeError(str(err) + ' following "' + first_line_of_error + '"')
+    splitline_len = len(splitline)
+    if splitline_len == 3:
+        (host, disk, journal) = splitline
+    elif splitline_len == 2:
+        (host, disk) = splitline
+    elif splitline_len == 1:
+        (host) = splitline
     else:
         raise argparse.ArgumentTypeError('must be in form HOST:DISK[:JOURNAL]')
 
