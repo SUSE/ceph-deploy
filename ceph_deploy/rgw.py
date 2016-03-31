@@ -149,6 +149,38 @@ def rgw_create(args):
 
     bootstrapped = set()
     errors = 0
+
+    # Update the config file
+    changed_cfg = False
+    for hostname, name in args.rgw:
+        enitity = 'client.{name}'.format(name=name)
+        port = 7480
+        if cfg.has_section(enitity) is False:
+            cfg.add_section(enitity)
+            changed_cfg = True
+        if cfg.has_option(enitity,'host') is False:
+            cfg.set(enitity, 'host', hostname)
+            changed_cfg = True
+        if cfg.has_option(enitity,'rgw_dns_name') is False:
+            # TODO this should be customizable
+            value = "%s:%s" % (hostname,port)
+            cfg.set(enitity, 'rgw_dns_name', hostname)
+            changed_cfg = True
+        if cfg.has_option(enitity,'rgw frontends') is False:
+            # TODO this should be customizable
+            cfg.set(enitity, 'rgw frontends', "civetweb port=%s" % (port))
+            changed_cfg = True
+
+    # If config file is changed save changes locally
+    if changed_cfg is True:
+        cfg_path = args.ceph_conf or '{cluster}.conf'.format(cluster=args.cluster)
+        if args.overwrite_conf is False:
+            msg = "The local config file '%s' exists with content that must be changed; use --overwrite-conf to update" % (cfg_path)
+            LOG.error(msg)
+            raise RuntimeError(msg)
+        with open(cfg_path, 'wb') as configfile:
+            cfg.write(configfile)
+
     for hostname, name in args.rgw:
         try:
             distro = hosts.get(hostname, username=args.username)
