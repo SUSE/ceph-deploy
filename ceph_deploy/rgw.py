@@ -228,11 +228,21 @@ def rgw_create(args):
         raise exc.GenericError('Failed to create %d RGWs' % errors)
 
 
+def rgw_list(args):
+    cfg = conf.ceph.load(args)
+    for rgw_section in cfg.sections():
+        if not rgw_section.startswith('client.rgw'):
+            continue
+        host = cfg.safe_get(rgw_section, 'host')
+        entity = rgw_section[7:]
+        print "%s:%s" % (host, entity)
+
 def rgw(args):
     if args.subcommand == 'create':
-        rgw_create(args)
-    else:
-        LOG.error('subcommand %s not implemented', args.subcommand)
+        return rgw_create(args)
+    if args.subcommand == 'list':
+        return rgw_list(args)
+    LOG.error('subcommand %s not implemented', args.subcommand)
 
 
 def colon_separated(s):
@@ -249,15 +259,19 @@ def make(parser):
     """
     Ceph RGW daemon management
     """
-    rgw_parser = parser.add_subparsers(dest='subcommand')
-    rgw_create = rgw_parser.add_parser(
-        'create',
-        help='Create an RGW instance'
+    parser.add_argument(
+        'subcommand',
+        metavar='SUBCOMMAND',
+        choices=[
+            'list',
+            'create',
+            ],
+        help='list, create',
         )
-    rgw_create.add_argument(
+    parser.add_argument(
         'rgw',
         metavar='HOST[:NAME]',
-        nargs='+',
+        nargs='*',
         type=colon_separated,
         help='host (and optionally the daemon name) to deploy on. \
                 NAME is automatically prefixed with \'rgw.\'',
