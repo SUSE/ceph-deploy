@@ -420,7 +420,7 @@ def make(parser):
             'create',
             'delete',
             ],
-        help='list, create',
+        help='list, create, delete'
         )
     parser.add_argument(
         'rgw',
