@@ -153,28 +153,47 @@ def rgw_create(args):
 
     # Update the config file
     changed_cfg = False
-    for hostname, name in args.rgw:
+    for hostname, name, port in args.rgw:
         if not name.startswith('rgw.'):
             msg = "rgw name '%s' does not start with 'rgw.'" % (name)
             LOG.error(msg)
             raise RuntimeError(msg)
         enitity = 'client.{name}'.format(name=name)
-        port = 7480
         if cfg.has_section(enitity) is False:
             cfg.add_section(enitity)
             changed_cfg = True
+        else:
+            # We have existing confg for the rgw
+            LOG.warning("existing configuration for rgw %s:%s" % (hostname, name))
         if cfg.has_option(enitity,'host') is False:
             cfg.set(enitity, 'host', hostname)
             changed_cfg = True
+        else:
+            existing_value = cfg.get(enitity, 'host')
+            if existing_value != hostname:
+                msg = "exisiting rgw '%s:%s' has a different hostname" % (hostname, name)
+                LOG.error(msg)
+                raise RuntimeError(msg)
         if cfg.has_option(enitity,'rgw_dns_name') is False:
-            # TODO this should be customizable
-            value = "%s:%s" % (hostname,port)
             cfg.set(enitity, 'rgw_dns_name', hostname)
             changed_cfg = True
+        else:
+            existing_value = cfg.get(enitity, 'rgw_dns_name')
+            if existing_value != hostname:
+                msg = "exisiting rgw '%s:%s' has a different rgw_dns_name" % (hostname, name)
+                LOG.error(msg)
+                raise RuntimeError(msg)
+        rgw_frontends_value = "civetweb port=%s" % (port)
         if cfg.has_option(enitity,'rgw frontends') is False:
             # TODO this should be customizable
-            cfg.set(enitity, 'rgw frontends', "civetweb port=%s" % (port))
+            cfg.set(enitity, 'rgw frontends', rgw_frontends_value)
             changed_cfg = True
+        else:
+            existing_value = cfg.get(enitity, 'rgw frontends')
+            if existing_value != rgw_frontends_value:
+                msg = "exisiting rgw '%s:%s' has a different 'rgw frontends'" % (hostname, name)
+                LOG.error(msg)
+                raise RuntimeError(msg)
 
     # If config file is changed save changes locally
     if changed_cfg is True:
@@ -186,7 +205,7 @@ def rgw_create(args):
         with open(cfg_path, 'wb') as configfile:
             cfg.write(configfile)
 
-    for hostname, name in args.rgw:
+    for hostname, name, port in args.rgw:
         try:
             distro = hosts.get(hostname, username=args.username)
             rlogger = distro.conn.logger
@@ -221,9 +240,9 @@ def rgw_create(args):
             distro.conn.exit()
             LOG.info(
                 ('The Ceph Object Gateway (RGW) is now running on host %s and '
-                 'default port %s'),
+                 'port %s'),
                 hostname,
-                '7480'
+                port
             )
         except RuntimeError as e:
             LOG.error(e)
@@ -302,9 +321,8 @@ def rgw_delete(args):
 
     # Check if config needs to be changed
     changed_cfg = False
-    for hostname, name in args.rgw:
+    for hostname, name, port in args.rgw:
         enitity = 'client.{name}'.format(name=name)
-        port = 7480
         if cfg.has_section(enitity) is True:
             cfg.remove_section(enitity)
             changed_cfg = True
@@ -323,7 +341,7 @@ def rgw_delete(args):
         cluster=args.cluster
         )
 
-    for hostname, name in args.rgw:
+    for hostname, name, port in args.rgw:
         try:
             distro = hosts.get(hostname, username=args.username)
             rlogger = distro.conn.logger
@@ -364,7 +382,7 @@ def rgw_delete(args):
         with open(cfg_path, 'wb') as configfile:
             cfg.write(configfile)
         # now distribute
-        for hostname, name in args.rgw:
+        for hostname, name, port in args.rgw:
             try:
                 distro = hosts.get(hostname, username=args.username)
                 rlogger = distro.conn.logger
@@ -403,10 +421,15 @@ def rgw(args):
 def colon_separated(s):
     host = s
     name = 'rgw.' + s
-    if s.count(':') == 1:
+    port = '7480'
+    delimiter_count = s.count(':')
+    if delimiter_count == 1:
         (host, name) = s.split(':')
+    if delimiter_count == 2:
+        (host, name, port) = s.split(':')
+    
     name = validate.alphanumeric(name)
-    return (host, name)
+    return (host, name, port)
 
 
 @priority(30)
@@ -426,10 +449,10 @@ def make(parser):
         )
     parser.add_argument(
         'rgw',
-        metavar='HOST[:NAME]',
+        metavar='HOST[:NAME][:PORT]',
         nargs='*',
         type=colon_separated,
-        help='host (and optionally the daemon name) to deploy on. \
+        help='host (and optionally the daemon name and port) to deploy on. \
                 NAME is automatically prefixed with \'rgw.\'',
         )
     parser.set_defaults(
