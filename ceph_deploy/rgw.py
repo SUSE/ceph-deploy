@@ -9,6 +9,7 @@ from ceph_deploy import hosts
 from ceph_deploy.util import system
 from ceph_deploy.lib import remoto
 from ceph_deploy.cliutil import priority
+from ceph_deploy import validate
 
 
 LOG = logging.getLogger(__name__)
@@ -427,6 +428,7 @@ def colon_separated(s):
     if delimiter_count == 2:
         (host, name, port) = s.split(':')
     
+    name = validate.alphanumericdot(name)
     return (host, name, port)
 
 
