@@ -436,23 +436,32 @@ def make(parser):
     """
     Ceph RGW daemon management
     """
-    parser.add_argument(
-        'subcommand',
-        metavar='SUBCOMMAND',
-        choices=[
-            'list',
-            'create',
-            'delete',
-            ],
-        help='list, create, delete'
+    rgw_parser = parser.add_subparsers(dest='subcommand')
+    rgw_create = rgw_parser.add_parser(
+        'create',
+        help='Create a rgw instance'
         )
-    parser.add_argument(
+    rgw_create.add_argument(
         'rgw',
         metavar='HOST[:NAME][:PORT]',
-        nargs='*',
+        nargs='+',
         type=colon_separated,
-        help='host (and optionally the daemon name and port) to deploy on. \
-                NAME is automatically prefixed with \'rgw.\'',
+        help='host (and optionally the daemon name) to deploy on.',
+        )
+    rgw_delete = rgw_parser.add_parser(
+        'delete',
+        help='Create a rgw instance'
+        )
+    rgw_delete.add_argument(
+        'rgw',
+        metavar='HOST[:NAME]',
+        nargs='+',
+        type=colon_separated,
+        help='host (and optionally the daemon name) to deploy on.',
+        )
+    rgw_list = rgw_parser.add_parser(
+        'list',
+        help='list all rgw instances in local config'
         )
     parser.set_defaults(
         func=rgw,
