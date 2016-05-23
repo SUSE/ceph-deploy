@@ -221,7 +221,7 @@ def gatherkeys(args):
                 if sucess:
                     break
             if not sucess:
-                LOG.error("Failed to connect to host:%s" ,', '.join(args.mon))
+                LOG.error("Failed to connect to mon on host:%s" ,', '.join(args.mon))
                 raise RuntimeError('Failed to connect any mon')
             had_error = False
             date_string = time.strftime("%Y%m%d%H%M%S")
