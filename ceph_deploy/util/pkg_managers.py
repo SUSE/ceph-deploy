@@ -147,24 +147,31 @@ def zypper(conn, packages, *a, **kw):
 
 
 def zypper_remove(conn, packages, *a, **kw):
-    if not isinstance(packages, list):
+
+    executable = [
+        'zypper',
+        '--non-interactive',
+        '--quiet'
+    ]
+
+    if isinstance(packages, str):
         packages = [packages]
-    for pkg in packages:
-        cmd = [
-            'zypper',
-            '--non-interactive',
-            '--quiet',
-            'remove',
-            ]
-        cmd.append(pkg)
-        stdout, stderr, exitrc = remoto.process.check(
+
+    extra_flags = kw.pop('extra_remove_flags', None)
+    cmd = executable + ['--ignore-unknown', 'remove']
+    if extra_flags:
+        if isinstance(extra_flags, str):
+            extra_flags = [extra_flags]
+        cmd.extend(extra_flags)
+    cmd.extend(packages)
+    stdout, stderr, exitrc = remoto.process.check(
             conn,
             cmd,
             **kw
         )
-        # exitrc is 104 when package(s) not installed.
-        if not exitrc in [0, 104]:
-            raise RuntimeError("Failed to execute command: %s" % " ".join(cmd))
+    # exitrc is 104 when package(s) not installed.
+    if not exitrc in [0, 104]:
+        raise RuntimeError("Failed to execute command: %s" % " ".join(cmd))
     return
 
 
